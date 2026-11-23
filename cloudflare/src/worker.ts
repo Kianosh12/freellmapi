@@ -15,7 +15,6 @@ import {
   createProviderKey,
   listProviderKeys,
   deleteProviderKey,
-  handleBootstrap,
 } from './chat';
 
 export type { Env };
@@ -95,11 +94,6 @@ export default {
         return createProviderKey(env.DB, env, payload);
       }
       if (request.method === 'GET') return listProviderKeys(env.DB);
-    }
-
-    if (url.pathname === '/api/bootstrap' && request.method === 'POST') {
-      if (!env.DB) return apiErrorResponse('D1 binding (DB) is not available', 'configuration_error', 503);
-      return handleBootstrap(request, env.DB, env);
     }
 
     const keyDelete = url.pathname.match(/^\/api\/keys\/(\d+)$/);
