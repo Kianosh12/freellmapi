@@ -114,10 +114,20 @@ async function candidateModels(db: D1Database, requestedId: string | null): Prom
     .prepare(
       `SELECT m.id, m.platform, m.model_id, m.display_name FROM models m
        WHERE m.enabled = 1
-         AND EXISTS (SELECT 1 FROM api_keys k WHERE k.platform = m.platform AND k.enabled = 1)
+         AND EXISTS (
+           SELECT 1 FROM api_keys k
+           WHERE k.platform = m.platform
+             AND k.enabled = 1
+             AND k.status != 'disabled'
+             AND NOT EXISTS (
+               SELECT 1 FROM rate_limit_cooldowns c
+               WHERE c.platform = k.platform AND c.key_id = k.id AND c.expires_at_ms > ?
+             )
+         )
        ORDER BY m.intelligence_rank ASC, m.speed_rank ASC
        LIMIT 25`,
     )
+    .bind(Date.now())
     .all<ModelRow>();
   return results ?? [];
 }
