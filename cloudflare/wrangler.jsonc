@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "freellmapi",
+  "account_id": "56f470e64ef4a139b78588ce5c7116c7",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": "../client/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/health", "/api/*", "/v1/*", "/anthropic/*", "/gemini/*", "/ollama/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "freellmapi",
+      "database_id": "3c41b5b8-55d4-4775-9a00-b3839e913d7c"
+    }
+  ],
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "9216475f450641eba3eb8fa2724fe9be" }
+  ],
+  "observability": { "enabled": true }
+}
