@@ -1,28 +1,34 @@
 /**
- * FreeLLMAPI on Cloudflare Workers — Phase 2 entrypoint.
+ * FreeLLMAPI on Cloudflare Workers — Phase 3 entrypoint.
  *
- * The full Express port lands via the shim (see
- * docs/cloudflare-migration/PHASE-1-ARCHITECTURE-REPORT.md §5); this worker
- * already serves the live health surface and the D1-backed /v1/models listing
- * so the deployment pipeline is exercised end to end.
+ * Live surfaces: /health, GET /v1/models (D1-backed), POST /v1/chat/completions
+ * (provider routing over the OpenAI-compatible surface, SSE streaming) and the
+ * admin key-management API (/api/keys) sealed with AES-256-GCM in D1.
  */
 
-export interface Env {
-  DB?: D1Database; // D1 database "freellmapi" (id 3c41b5b8-55d4-4775-9a00-b3839e913d7c)
-  CACHE?: KVNamespace;
-}
+import {
+  type Env,
+  apiErrorResponse,
+  requireAdminAuth,
+  requireInferenceAuth,
+  handleChatCompletions,
+  createProviderKey,
+  listProviderKeys,
+  deleteProviderKey,
+} from './chat';
 
-type ModelRow = { id: number; platform: string; model_id: string; display_name: string };
+export type { Env };
+
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'authorization, content-type, x-api-key, x-admin-key',
+  'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
+};
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const cors = {
-      'access-control-allow-origin': '*',
-      'access-control-allow-headers': 'authorization, content-type, x-api-key',
-      'access-control-allow-methods': 'GET, POST, OPTIONS',
-    };
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
     if (url.pathname === '/health' || url.pathname === '/api/health') {
       let db = 'pending';
@@ -40,7 +46,7 @@ export default {
         runtime: 'cloudflare-workers',
         db,
         time: new Date().toISOString(),
-      }, { headers: cors });
+      }, { headers: CORS });
     }
 
     if (url.pathname === '/v1/models' && request.method === 'GET') {
@@ -48,7 +54,7 @@ export default {
         try {
           const { results } = await env.DB.prepare(
             'SELECT id, platform, model_id, display_name FROM models WHERE enabled = 1 ORDER BY platform, model_id LIMIT 1000',
-          ).all<ModelRow>();
+          ).all<{ id: number; platform: string; model_id: string; display_name: string }>();
           return Response.json(
             {
               object: 'list',
@@ -59,18 +65,49 @@ export default {
                 display_name: r.display_name,
               })),
             },
-            { headers: cors },
+            { headers: CORS },
           );
         } catch {
-          return Response.json({ object: 'list', data: [] }, { headers: cors });
+          return Response.json({ object: 'list', data: [] }, { headers: CORS });
         }
       }
-      return Response.json({ object: 'list', data: [] }, { headers: cors });
+      return Response.json({ object: 'list', data: [] }, { headers: CORS });
     }
 
-    return Response.json(
-      { error: { message: `Not implemented yet in the Workers port: ${request.method} ${url.pathname}`, type: 'invalid_request_error' } },
-      { status: 404, headers: cors },
+    if (url.pathname === '/v1/chat/completions' && request.method === 'POST') {
+      const denied = requireInferenceAuth(request, env);
+      if (denied) return denied;
+      return handleChatCompletions(request, env);
+    }
+
+    if (url.pathname === '/api/keys') {
+      if (!env.DB) return apiErrorResponse('D1 binding (DB) is not available', 'configuration_error', 503);
+      const denied = requireAdminAuth(request, env);
+      if (denied) return denied;
+      if (request.method === 'POST') {
+        let payload: Record<string, unknown>;
+        try {
+          payload = (await request.json()) as Record<string, unknown>;
+        } catch {
+          return apiErrorResponse('Request body must be JSON', 'invalid_request_error', 400);
+        }
+        return createProviderKey(env.DB, env, payload);
+      }
+      if (request.method === 'GET') return listProviderKeys(env.DB);
+    }
+
+    const keyDelete = url.pathname.match(/^\/api\/keys\/(\d+)$/);
+    if (keyDelete && request.method === 'DELETE') {
+      if (!env.DB) return apiErrorResponse('D1 binding (DB) is not available', 'configuration_error', 503);
+      const denied = requireAdminAuth(request, env);
+      if (denied) return denied;
+      return deleteProviderKey(env.DB, Number(keyDelete[1]));
+    }
+
+    return apiErrorResponse(
+      `Not implemented yet in the Workers port: ${request.method} ${url.pathname}`,
+      'invalid_request_error',
+      404,
     );
   },
 } satisfies ExportedHandler<Env>;
