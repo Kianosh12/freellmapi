@@ -26,7 +26,6 @@ export const PLATFORM_ENDPOINTS: Record<string, PlatformEndpoint> = {
   minimax: { baseUrl: 'https://api.minimax.chat/v1' },
   huggingface: { baseUrl: 'https://router.huggingface.co/v1' },
   google: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' },
-  freemodel: { baseUrl: 'https://freemodel.in/v1' },
   cloudflare: { baseUrl: 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1' },
 };
 
