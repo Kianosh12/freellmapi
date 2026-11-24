@@ -27,4 +27,9 @@ INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_ran
   ('huggingface', 'accounts/fireworks/models/llama-v3p3-70b-instruct', 'Llama 3.3 70B (HF)', 14, 11, 'Medium', NULL, NULL, NULL, NULL, '~1-3M', 131072),
   ('zhipu', 'glm-4.5-flash', 'GLM-4.5 Flash', 5, 4, 'Large', NULL, NULL, NULL, 1000000, '~30M', 131072),
   ('moonshot', 'kimi-latest', 'Kimi Latest', 4, 8, 'Large', 60, NULL, NULL, 500000, '~15M', 200000),
-  ('minimax', 'MiniMax-M1', 'MiniMax M1', 5, 8, 'Large', 20, NULL, 1000000, NULL, '~30M', 200000);
+  ('minimax', 'MiniMax-M1', 'MiniMax M1', 5, 8, 'Large', 20, NULL, 1000000, NULL, '~30M', 200000),
+  ('freemodel', 'deepseek-v4.1-flash', 'DeepSeek V4.1 Flash (FreeModel)', 4, 2, 'Large', 60, NULL, NULL, NULL, 'pay-per-token', 1000000),
+  ('freemodel', 'glm-5.3-flash', 'GLM 5.3 Flash (FreeModel)', 5, 3, 'Large', 60, NULL, NULL, NULL, 'pay-per-token', 1000000),
+  ('freemodel', 'gpt-6-astra', 'GPT-6 Astra (FreeModel)', 1, 7, 'Frontier', 60, NULL, NULL, NULL, 'pay-per-token', 1000000),
+  ('freemodel', 'gemini-3.1-pro', 'Gemini 3.1 Pro (FreeModel)', 2, 7, 'Frontier', 60, NULL, NULL, NULL, 'pay-per-token', 1000000),
+  ('freemodel', 'claude-fable-5-1', 'Claude Fable 5.1 (FreeModel)', 1, 8, 'Frontier', 60, NULL, NULL, NULL, 'pay-per-token', 1000000);

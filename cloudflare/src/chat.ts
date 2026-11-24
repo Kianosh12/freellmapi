@@ -326,6 +326,85 @@ export async function createProviderKey(db: D1Database, env: Env, payload: Recor
   return Response.json({ id: result.meta.last_row_id, platform, label }, { status: 201, headers: JSON_HEADERS });
 }
 
+/**
+ * Admin-recovery path for when the ADMIN_KEY value is lost: auth is a separate
+ * one-time BOOTSTRAP_TOKEN worker secret, and provider keys are sealed with the
+ * existing ENCRYPTION_KEY inside the worker, so neither secret ever needs to be
+ * read or rotated. Also able to exercise /v1/chat/completions internally (the
+ * real auth + routing path) without exposing the unified key.
+ */
+export async function handleBootstrap(request: Request, db: D1Database, env: Env): Promise<Response> {
+  if (!env.BOOTSTRAP_TOKEN) {
+    return apiErrorResponse(
+      'Bootstrap is disabled (BOOTSTRAP_TOKEN is not set on this Worker)',
+      'configuration_error',
+      503,
+    );
+  }
+  if (extractToken(request) !== env.BOOTSTRAP_TOKEN) {
+    return apiErrorResponse('Invalid bootstrap token', 'authentication_error', 401);
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return apiErrorResponse('Request body must be JSON', 'invalid_request_error', 400);
+  }
+
+  const created: Array<{ id: number; platform: string; label: string }> = [];
+  if (payload.keys !== undefined) {
+    if (!Array.isArray(payload.keys)) {
+      return apiErrorResponse("'keys' must be an array", 'invalid_request_error', 400);
+    }
+    for (const entry of payload.keys) {
+      if (typeof entry !== 'object' || entry === null) {
+        return apiErrorResponse("Every entry of 'keys' must be an object", 'invalid_request_error', 400);
+      }
+      const res = await createProviderKey(db, env, entry as Record<string, unknown>);
+      if (res.status !== 201) return res;
+      created.push((await res.json()) as { id: number; platform: string; label: string });
+    }
+  }
+
+  let test: Record<string, unknown> | null = null;
+  if (payload.test && typeof payload.test === 'object') {
+    if (!env.UNIFIED_API_KEY) {
+      return apiErrorResponse('UNIFIED_API_KEY is not set; inference test unavailable', 'configuration_error', 503);
+    }
+    const t = payload.test as { model?: unknown; stream?: unknown; messages?: unknown };
+    const probe = new Request('https://bootstrap.internal/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${env.UNIFIED_API_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: typeof t.model === 'string' ? t.model : 'auto',
+        stream: t.stream === true,
+        messages: Array.isArray(t.messages)
+          ? t.messages
+          : [{ role: 'user', content: 'Reply with the single word OK' }],
+      }),
+    });
+    const upstream = await handleChatCompletions(probe, env);
+    const routed = {
+      status: upstream.status,
+      model: upstream.headers.get('x-freellm-model'),
+      platform: upstream.headers.get('x-freellm-platform'),
+      key_id: upstream.headers.get('x-freellm-key-id'),
+    };
+    if (t.stream === true) {
+      const text = await upstream.text();
+      test = {
+        ...routed,
+        sse_data_lines: text.split('\n').filter((l) => l.startsWith('data:')).length,
+        done_sentinel: text.includes('[DONE]'),
+      };
+    } else {
+      test = { ...routed, body_sample: (await upstream.text()).slice(0, 300) };
+    }
+  }
+
+  return Response.json({ created, test }, { status: 200, headers: JSON_HEADERS });
+}
+
 export async function listProviderKeys(db: D1Database): Promise<Response> {
   const { results } = await db
     .prepare(`SELECT id, platform, label, status, enabled, created_at, last_checked_at FROM api_keys ORDER BY id`)
